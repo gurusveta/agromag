@@ -1,6 +1,4 @@
 // === Каталог растений ===
-// h — эталонная высота (м), price — цена за эталонную высоту
-// Файл картинки: plants/<id>.png (если нет — рисуется силуэт)
 const CATALOG = [
   { id: 'juniper-skyrocket', name: 'Можжевельник Skyrocket', h: 2.0, price: 900,  shape: 'cone-thin', color: '#4a7c59' },
   { id: 'juniper-bluechip',  name: 'Можжевельник Blue Chip',  h: 0.5, price: 500,  shape: 'ball-flat', color: '#6b8e9e' },
@@ -19,7 +17,6 @@ const CATALOG = [
   { id: 'hydrangea',         name: 'Гортензия метельчатая',   h: 1.5, price: 1000, shape: 'bush',      color: '#e4b5c8' }
 ];
 
-// === Работы ===
 const WORK = {
   planting: 600,
   soil: 250,
@@ -27,8 +24,6 @@ const WORK = {
   freeFrom: 30000
 };
 
-// === Формула цены от высоты ===
-// Цена = базовая * (высота / эталон)^POW
 const PRICE_POW = 1.5;
 
 function calcPrice(plant) {
@@ -40,10 +35,11 @@ function calcPrice(plant) {
 
 // === Состояние ===
 let activePlantId = CATALOG[0].id;
-let plants = [];      // { typeId, x, y, height }
+let plants = [];
 let selectedIdx = -1;
 let imgNaturalW = 1, imgNaturalH = 1;
-let pngCache = {};    // id -> true/false (есть ли PNG)
+let processedImages = {}; // id -> dataURL с прозрачным фоном
+let pngCache = {};        // id -> есть ли PNG (или уже обработан)
 
 const stage = document.getElementById('stage');
 const photo = document.getElementById('photo');
@@ -82,6 +78,60 @@ function loadPhoto(e) {
   reader.readAsDataURL(file);
 }
 
+// === Удаление белого фона через canvas ===
+function removeWhiteBackground(img) {
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = imageData.data;
+  // Порог: пиксели, где R,G,B >= 235 → прозрачные
+  const THRESHOLD = 235;
+  // Плавный переход: 200..255
+  const SOFT_MIN = 200;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], g = d[i+1], b = d[i+2];
+    const minChannel = Math.min(r, g, b);
+    if (minChannel >= THRESHOLD) {
+      d[i+3] = 0; // полностью прозрачный
+    } else if (minChannel >= SOFT_MIN) {
+      // Плавное затухание
+      const t = (minChannel - SOFT_MIN) / (THRESHOLD - SOFT_MIN);
+      d[i+3] = Math.round(255 * (1 - t));
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+// Загрузка PNG + удаление фона
+function loadAndProcess(id) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const processed = removeWhiteBackground(img);
+        processedImages[id] = processed;
+        pngCache[id] = true;
+        resolve(true);
+      } catch (e) {
+        // Если canvas не смог (CORS) — используем оригинал
+        processedImages[id] = img.src;
+        pngCache[id] = true;
+        resolve(true);
+      }
+    };
+    img.onerror = () => {
+      pngCache[id] = false;
+      resolve(false);
+    };
+    img.src = 'plants/' + id + '.png';
+  });
+}
+
 function svgFor(plant) {
   const c = plant.color;
   let body = '';
@@ -104,21 +154,10 @@ function svgFor(plant) {
 }
 
 function renderPlantHTML(cat) {
-  // Если PNG есть — используем img, иначе SVG
-  if (pngCache[cat.id]) {
-    return `<img src="plants/${cat.id}.png" alt="">`;
+  if (pngCache[cat.id] && processedImages[cat.id]) {
+    return `<img src="${processedImages[cat.id]}" alt="">`;
   }
   return svgFor(cat);
-}
-
-// Пробуем загрузить PNG — если нет, ставим флаг false
-function probePNG(id) {
-  return new Promise(resolve => {
-    const img = new Image();
-    img.onload = () => { pngCache[id] = true; resolve(true); };
-    img.onerror = () => { pngCache[id] = false; resolve(false); };
-    img.src = 'plants/' + id + '.png';
-  });
 }
 
 function plantSizePx(plant) {
@@ -152,23 +191,10 @@ function render() {
   updateBOM();
 }
 
-// === Pointer-логика на всей сцене ===
+// === Pointer-логика ===
 let pointer = null;
 
-function clientToNorm(clientX, clientY) {
-  const rect = photo.getBoundingClientRect();
-  return {
-    x: (clientX - rect.left) / rect.width,
-    y: (clientY - rect.top) / rect.height,
-    rectW: rect.width,
-    rectH: rect.height,
-    rectLeft: rect.left,
-    rectTop: rect.top
-  };
-}
-
 function findPlantAt(clientX, clientY) {
-  // Ищем ближайшее растение в радиусе "хватательного круга" (в пикселях экрана)
   const rect = photo.getBoundingClientRect();
   const stageRect = stage.getBoundingClientRect();
   const offsetX = rect.left - stageRect.left;
@@ -178,12 +204,12 @@ function findPlantAt(clientX, clientY) {
 
   let best = -1;
   let bestDist = 9999;
-  const GRAB = 55; // радиус в пикселях
+  const GRAB = 55;
 
   plants.forEach((p, i) => {
     const size = plantSizePx(p);
     const cx = offsetX + p.x * rect.width;
-    const cy = offsetY + p.y * rect.height - size / 2; // центр по вертикали
+    const cy = offsetY + p.y * rect.height - size / 2;
     const dx = px - cx;
     const dy = py - cy;
     const d = Math.hypot(dx, dy);
@@ -197,13 +223,9 @@ function findPlantAt(clientX, clientY) {
 
 stage.addEventListener('pointerdown', e => {
   if (photo.style.display === 'none') return;
-  if (e.target !== stage && e.target !== photo && e.target !== overlay) {
-    // Клик по элементу .plant — тоже валиден
-  }
   const idx = findPlantAt(e.clientX, e.clientY);
 
   if (idx >= 0) {
-    // Нашли растение рядом — начинаем drag
     selectedIdx = idx;
     openEditor();
     const rect = photo.getBoundingClientRect();
@@ -222,11 +244,12 @@ stage.addEventListener('pointerdown', e => {
     render();
     e.preventDefault();
   } else {
-    // Не нашли — посадим новое
-    const norm = clientToNorm(e.clientX, e.clientY);
-    if (norm.x < 0 || norm.x > 1 || norm.y < 0 || norm.y > 1) return;
+    const rect = photo.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return;
     const cat = CATALOG.find(c => c.id === activePlantId);
-    plants.push({ typeId: activePlantId, x: norm.x, y: norm.y, height: cat.h });
+    plants.push({ typeId: activePlantId, x, y, height: cat.h });
     selectedIdx = plants.length - 1;
     openEditor();
     render();
@@ -257,7 +280,6 @@ stage.addEventListener('pointerup', e => {
   if (pointer.moved) setStatus('Растение перемещено');
   pointer = null;
 });
-
 stage.addEventListener('pointercancel', () => { pointer = null; });
 
 // === Редактор ===
@@ -273,13 +295,11 @@ function openEditor() {
   heightSlider.value = Math.round(p.height * 100);
   updateHeightLabel();
 }
-
 function updateHeightLabel() {
   const p = plants[selectedIdx];
   if (!p) return;
   heightVal.textContent = p.height.toFixed(1) + ' м';
 }
-
 function onHeightChange() {
   if (selectedIdx < 0) return;
   const p = plants[selectedIdx];
@@ -287,7 +307,6 @@ function onHeightChange() {
   updateHeightLabel();
   render();
 }
-
 function resetSize() {
   if (selectedIdx < 0) return;
   const cat = CATALOG.find(c => c.id === plants[selectedIdx].typeId);
@@ -296,7 +315,6 @@ function resetSize() {
   updateHeightLabel();
   render();
 }
-
 function removeSelected() {
   if (selectedIdx < 0) return;
   const name = CATALOG.find(c => c.id === plants[selectedIdx].typeId).name;
@@ -322,7 +340,6 @@ function renderCatalog() {
     catalogEl.appendChild(div);
   });
 }
-
 function activeName() {
   const c = CATALOG.find(x => x.id === activePlantId);
   return c ? c.name : '';
@@ -363,7 +380,6 @@ function updateBOM() {
   rows += `<tr class="total"><td>Итого</td><td>${grand.toLocaleString('ru-RU')} ₽</td></tr>`;
   bomEl.innerHTML = rows;
 }
-
 function setStatus(t) { statusEl.textContent = t; }
 
 // === Скачать PNG ===
@@ -377,7 +393,6 @@ function downloadPNG() {
   const rect = photo.getBoundingClientRect();
   const scale = imgNaturalW / rect.width;
 
-  // Загружаем PNG (если есть), иначе рисуем эллипс
   const tasks = plants.map(p => new Promise(resolve => {
     const cat = CATALOG.find(c => c.id === p.typeId);
     if (!cat) return resolve();
@@ -387,7 +402,6 @@ function downloadPNG() {
 
     const finish = (img) => {
       ctx.save();
-      // тень
       ctx.fillStyle = 'rgba(0,0,0,.25)';
       ctx.beginPath();
       ctx.ellipse(cx, cy, size * 0.4, size * 0.1, 0, 0, Math.PI * 2);
@@ -404,11 +418,11 @@ function downloadPNG() {
       resolve();
     };
 
-    if (pngCache[cat.id]) {
+    if (pngCache[cat.id] && processedImages[cat.id]) {
       const img = new Image();
       img.onload = () => finish(img);
       img.onerror = () => finish(null);
-      img.src = 'plants/' + cat.id + '.png';
+      img.src = processedImages[cat.id];
     } else {
       finish(null);
     }
@@ -424,8 +438,8 @@ function downloadPNG() {
 
 // === Старт ===
 async function init() {
-  // Проверяем наличие PNG для каждого растения
-  await Promise.all(CATALOG.map(c => probePNG(c.id)));
+  setStatus('Загружаем картинки растений…');
+  await Promise.all(CATALOG.map(c => loadAndProcess(c.id)));
   renderCatalog();
   setStatus('Готово к работе');
 }
