@@ -15,12 +15,13 @@
       padding: 12px;
       min-height: 100vh;
       user-select: none;
+      -webkit-user-select: none;
     }
     h1 { font-size: 20px; color: #2e7d32; margin-bottom: 2px; }
     .sub { color: #558b2f; font-size: 12px; margin-bottom: 12px; }
 
     .toolbar { display: flex; gap: 8px; margin-bottom: 8px; }
-    button, .btn {
+    button {
       background: #2e7d32; color: #fff; border: 0;
       padding: 10px 14px; border-radius: 8px;
       font-size: 14px; cursor: pointer;
@@ -38,7 +39,7 @@
       border-radius: 12px;
       overflow: hidden;
       margin-bottom: 12px;
-      min-height: 300px;
+      min-height: 260px;
       touch-action: none;
     }
     #stage.empty {
@@ -46,22 +47,20 @@
       color: #888; font-size: 14px; text-align: center; padding: 40px 20px;
       border: 2px dashed #bbb;
     }
-    #photo {
-      display: block; width: 100%; height: auto;
-    }
-    #overlay {
-      position: absolute; inset: 0;
-      pointer-events: none;
-    }
+    #photo { display: block; width: 100%; height: auto; }
+    #overlay { position: absolute; inset: 0; pointer-events: none; }
+
     .plant {
       position: absolute;
       transform: translate(-50%, -100%);
-      pointer-events: auto;
-      cursor: pointer;
-      transition: filter .15s;
+      pointer-events: none;
       filter: drop-shadow(2px 4px 4px rgba(0,0,0,.35));
+      will-change: left, top;
     }
-    .plant.selected { filter: drop-shadow(0 0 0 3px #ffeb3b) drop-shadow(2px 4px 4px rgba(0,0,0,.35)); }
+    .plant.selected {
+      filter: drop-shadow(0 0 0 3px #ffeb3b) drop-shadow(2px 4px 4px rgba(0,0,0,.35));
+    }
+    .plant img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
 
     .panel {
       background: #fff;
@@ -85,12 +84,19 @@
     }
     .item.active { border-color: #2e7d32; background: #dcedc8; }
     .item .price { color: #558b2f; font-weight: bold; display: block; margin-top: 2px; }
+    .item .thumb { height: 40px; display: flex; align-items: center; justify-content: center; margin-bottom: 2px; }
+    .item .thumb img { max-height: 40px; max-width: 100%; }
+
+    .sliderRow { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+    .sliderRow input[type="range"] { flex: 1; accent-color: #2e7d32; }
+    .sliderRow .val { font-size: 13px; font-weight: 600; color: #2e7d32; min-width: 60px; text-align: right; }
 
     table.bom { width: 100%; font-size: 13px; border-collapse: collapse; }
     table.bom td { padding: 4px 0; border-bottom: 1px solid #eee; }
     table.bom td:last-child { text-align: right; font-weight: 600; }
     table.bom tr.total td { border-top: 2px solid #2e7d32; border-bottom: 0; padding-top: 8px; font-size: 15px; color: #2e7d32; }
     table.bom tr.subtotal td { color: #666; font-size: 12px; }
+    table.bom small { color: #888; font-weight: normal; }
 
     .status { font-size: 12px; color: #777; margin-top: 6px; }
     input[type="file"] { display: none; }
@@ -107,7 +113,7 @@
   <input type="file" id="cam" accept="image/*" capture="environment">
   <input type="file" id="gal" accept="image/*">
 
-  <div id="stage" class="empty" onclick="stageClick(event)">
+  <div id="stage" class="empty">
     <span>Сфотографируйте участок<br>или выберите фото из галереи</span>
     <img id="photo" style="display:none">
     <div id="overlay"></div>
@@ -119,10 +125,14 @@
   </div>
 
   <div class="panel" id="editor" style="display:none">
-    <h3>Выбранное растение</h3>
-    <div class="toolbar">
-      <button class="secondary" onclick="shrink()">− Меньше</button>
-      <button class="secondary" onclick="grow()">+ Больше</button>
+    <h3 id="editorTitle">Выбранное растение</h3>
+    <div class="sliderRow">
+      <span style="font-size:12px;color:#666">Высота:</span>
+      <input type="range" id="heightSlider" min="30" max="500" value="100" step="5">
+      <span class="val" id="heightVal">1.0 м</span>
+    </div>
+    <div class="toolbar" style="margin-top:8px">
+      <button class="secondary" onclick="resetSize()">↺ Размер</button>
       <button class="danger" onclick="removeSelected()">🗑 Удалить</button>
     </div>
   </div>
