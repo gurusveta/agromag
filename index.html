@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#2e7d32" />
+  <title>Агромаг — посадка растений</title>
+  <link rel="manifest" href="manifest.json" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, Roboto, sans-serif;
+      background: #f1f8e9;
+      color: #1b1b1b;
+      padding: 16px;
+      min-height: 100vh;
+    }
+    h1 { font-size: 22px; color: #2e7d32; margin-bottom: 4px; }
+    p.sub { color: #558b2f; margin-bottom: 16px; font-size: 14px; }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.08);
+      margin-bottom: 12px;
+    }
+    button {
+      background: #2e7d32; color: #fff; border: 0;
+      padding: 12px 20px; border-radius: 8px;
+      font-size: 16px; cursor: pointer;
+      width: 100%;
+    }
+    button:active { background: #1b5e20; }
+    .status { font-size: 13px; color: #777; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>🌲 Агромаг</h1>
+  <p class="sub">Планировщик посадки растений на участке</p>
+
+  <div class="card">
+    <p>Каркас приложения работает.</p>
+    <p class="status" id="status">Проверка PWA…</p>
+  </div>
+
+  <div class="card">
+    <button onclick="test()">Проверить работу</button>
+  </div>
+
+  <script>
+    function test() {
+      alert('Всё работает! Дальше добавим камеру и каталог.');
+    }
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').then(() => {
+        document.getElementById('status').textContent = '✅ PWA готова, можно установить на главный экран';
+      }).catch(() => {
+        document.getElementById('status').textContent = '⚠️ Service worker не зарегистрирован';
+      });
+    }
+    window.addEventListener('load', () => {
+      if (window.matchMedia('(display-mode: standalone)').matches) {
+        document.getElementById('status').textContent = '✅ Открыто как приложение';
+      }
+    });
+  </script>
+</body>
+</html>
