@@ -1,4 +1,4 @@
-const CACHE = 'agromag-v4';
+const CACHE = 'agromag-v5';
 
 self.addEventListener('install', e => {
   self.skipWaiting();
