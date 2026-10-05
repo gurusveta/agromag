@@ -7,62 +7,139 @@
   <title>Агромаг — посадка растений</title>
   <link rel="manifest" href="manifest.json" />
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     body {
       font-family: -apple-system, Roboto, sans-serif;
       background: #f1f8e9;
       color: #1b1b1b;
-      padding: 16px;
+      padding: 12px;
       min-height: 100vh;
+      user-select: none;
     }
-    h1 { font-size: 22px; color: #2e7d32; margin-bottom: 4px; }
-    p.sub { color: #558b2f; margin-bottom: 16px; font-size: 14px; }
-    .card {
-      background: #fff;
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 2px 8px rgba(0,0,0,.08);
-      margin-bottom: 12px;
-    }
-    button {
+    h1 { font-size: 20px; color: #2e7d32; margin-bottom: 2px; }
+    .sub { color: #558b2f; font-size: 12px; margin-bottom: 12px; }
+
+    .toolbar { display: flex; gap: 8px; margin-bottom: 8px; }
+    button, .btn {
       background: #2e7d32; color: #fff; border: 0;
-      padding: 12px 20px; border-radius: 8px;
-      font-size: 16px; cursor: pointer;
-      width: 100%;
+      padding: 10px 14px; border-radius: 8px;
+      font-size: 14px; cursor: pointer;
+      flex: 1; text-align: center;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
     }
     button:active { background: #1b5e20; }
-    .status { font-size: 13px; color: #777; margin-top: 8px; }
+    button.secondary { background: #558b2f; }
+    button.danger { background: #c62828; }
+
+    #stage {
+      position: relative;
+      width: 100%;
+      background: #e0e0e0;
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 12px;
+      min-height: 300px;
+      touch-action: none;
+    }
+    #stage.empty {
+      display: flex; align-items: center; justify-content: center;
+      color: #888; font-size: 14px; text-align: center; padding: 40px 20px;
+      border: 2px dashed #bbb;
+    }
+    #photo {
+      display: block; width: 100%; height: auto;
+    }
+    #overlay {
+      position: absolute; inset: 0;
+      pointer-events: none;
+    }
+    .plant {
+      position: absolute;
+      transform: translate(-50%, -100%);
+      pointer-events: auto;
+      cursor: pointer;
+      transition: filter .15s;
+      filter: drop-shadow(2px 4px 4px rgba(0,0,0,.35));
+    }
+    .plant.selected { filter: drop-shadow(0 0 0 3px #ffeb3b) drop-shadow(2px 4px 4px rgba(0,0,0,.35)); }
+
+    .panel {
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.08);
+      margin-bottom: 10px;
+    }
+    .panel h3 { font-size: 14px; color: #2e7d32; margin-bottom: 8px; }
+
+    .catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 6px; }
+    .item {
+      border: 2px solid transparent;
+      background: #f9fbe7;
+      border-radius: 8px;
+      padding: 6px;
+      text-align: center;
+      cursor: pointer;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    .item.active { border-color: #2e7d32; background: #dcedc8; }
+    .item .price { color: #558b2f; font-weight: bold; display: block; margin-top: 2px; }
+
+    table.bom { width: 100%; font-size: 13px; border-collapse: collapse; }
+    table.bom td { padding: 4px 0; border-bottom: 1px solid #eee; }
+    table.bom td:last-child { text-align: right; font-weight: 600; }
+    table.bom tr.total td { border-top: 2px solid #2e7d32; border-bottom: 0; padding-top: 8px; font-size: 15px; color: #2e7d32; }
+    table.bom tr.subtotal td { color: #666; font-size: 12px; }
+
+    .status { font-size: 12px; color: #777; margin-top: 6px; }
+    input[type="file"] { display: none; }
   </style>
 </head>
 <body>
   <h1>🌲 Агромаг</h1>
   <p class="sub">Планировщик посадки растений на участке</p>
 
-  <div class="card">
-    <p>Каркас приложения работает.</p>
-    <p class="status" id="status">Проверка PWA…</p>
+  <div class="toolbar">
+    <button onclick="document.getElementById('cam').click()">📷 Снять</button>
+    <button class="secondary" onclick="document.getElementById('gal').click()">🖼 Галерея</button>
+  </div>
+  <input type="file" id="cam" accept="image/*" capture="environment">
+  <input type="file" id="gal" accept="image/*">
+
+  <div id="stage" class="empty" onclick="stageClick(event)">
+    <span>Сфотографируйте участок<br>или выберите фото из галереи</span>
+    <img id="photo" style="display:none">
+    <div id="overlay"></div>
   </div>
 
-  <div class="card">
-    <button onclick="test()">Проверить работу</button>
+  <div class="panel">
+    <h3>Каталог — выберите растение</h3>
+    <div class="catalog" id="catalog"></div>
   </div>
 
-  <script>
-    function test() {
-      alert('Всё работает! Дальше добавим камеру и каталог.');
-    }
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js').then(() => {
-        document.getElementById('status').textContent = '✅ PWA готова, можно установить на главный экран';
-      }).catch(() => {
-        document.getElementById('status').textContent = '⚠️ Service worker не зарегистрирован';
-      });
-    }
-    window.addEventListener('load', () => {
-      if (window.matchMedia('(display-mode: standalone)').matches) {
-        document.getElementById('status').textContent = '✅ Открыто как приложение';
-      }
-    });
-  </script>
+  <div class="panel" id="editor" style="display:none">
+    <h3>Выбранное растение</h3>
+    <div class="toolbar">
+      <button class="secondary" onclick="shrink()">− Меньше</button>
+      <button class="secondary" onclick="grow()">+ Больше</button>
+      <button class="danger" onclick="removeSelected()">🗑 Удалить</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Смета</h3>
+    <table class="bom" id="bom">
+      <tr><td colspan="2" style="color:#888">Пока ничего не посажено</td></tr>
+    </table>
+  </div>
+
+  <div class="toolbar">
+    <button class="secondary" onclick="downloadPNG()">💾 Скачать план</button>
+  </div>
+
+  <p class="status" id="status">Готово к работе</p>
+
+  <script src="app.js"></script>
 </body>
 </html>
