@@ -17,17 +17,15 @@ const CATALOG = [
   { id: 'hydrangea',         name: 'Гортензия метельчатая',   h: 1.5, price: 1000, shape: 'bush',      color: '#e4b5c8' }
 ];
 
-// === Расценки на работы (правь здесь) ===
 const WORK = {
-  planting: 600,   // посадка одного растения
-  soil: 250,       // грунт/удобрения на растение
-  delivery: 3500,  // доставка, если сумма < freeFrom
-  freeFrom: 30000  // бесплатная доставка от этой суммы
+  planting: 600,
+  soil: 250,
+  delivery: 3500,
+  freeFrom: 30000
 };
 
-// === Внутреннее состояние ===
 let activePlantId = CATALOG[0].id;
-let plants = [];       // { id, typeId, x, y (0..1), scale }
+let plants = [];
 let selectedIdx = -1;
 let imgNaturalW = 1, imgNaturalH = 1;
 
@@ -39,7 +37,6 @@ const bomEl = document.getElementById('bom');
 const editorEl = document.getElementById('editor');
 const statusEl = document.getElementById('status');
 
-// === Загрузка фото ===
 document.getElementById('cam').addEventListener('change', loadPhoto);
 document.getElementById('gal').addEventListener('change', loadPhoto);
 
@@ -57,17 +54,15 @@ function loadPhoto(e) {
       plants = [];
       selectedIdx = -1;
       render();
-      statusEl.textContent = 'Фото загружено. Тапните по нему, чтобы посадить ' + activeName();
+      setStatus('Фото загружено. Тапните по нему, чтобы посадить ' + activeName());
     };
     photo.src = ev.target.result;
   };
   reader.readAsDataURL(file);
 }
 
-// === Рисование растений ===
 function svgFor(plant) {
   const c = plant.color;
-  const w = 100, h = 100;
   let body = '';
   if (plant.shape === 'cone-thin') {
     body = `<polygon points="50,5 78,95 22,95" fill="${c}"/>`;
@@ -84,16 +79,14 @@ function svgFor(plant) {
             <ellipse cx="65" cy="55" rx="32" ry="38" fill="${c}"/>
             <ellipse cx="50" cy="70" rx="38" ry="28" fill="${c}"/>`;
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="100%" height="100%">${body}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">${body}</svg>`;
 }
 
-// Размер растения в пикселях: базовый = 60 px на 1 метр, поправка на перспективу
 function plantSizePx(plant) {
   const cat = CATALOG.find(c => c.id === plant.typeId);
   if (!cat) return 60;
   const pxPerMeter = 60;
   let size = cat.h * pxPerMeter * plant.scale;
-  // Перспектива: y=0 (верх) → ×0.4, y=1 (низ) → ×1.2
   const perspective = 0.4 + plant.y * 0.8;
   return Math.max(14, size * perspective);
 }
@@ -116,20 +109,78 @@ function render() {
     el.style.width = size + 'px';
     el.style.height = size + 'px';
     el.innerHTML = svgFor(cat);
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      selectedIdx = i;
-      render();
-      editorEl.style.display = 'block';
-    });
+    el.dataset.idx = i;
+
+    el.addEventListener('pointerdown', onPointerDown);
     overlay.appendChild(el);
   });
   updateBOM();
 }
 
-// === Тап по сцене — посадить растение ===
+// === Выбор и перетаскивание ===
+let dragState = null;
+
+function onPointerDown(e) {
+  e.stopPropagation();
+  const idx = parseInt(e.currentTarget.dataset.idx);
+  selectedIdx = idx;
+  const rect = photo.getBoundingClientRect();
+  const p = plants[idx];
+
+  dragState = {
+    idx,
+    startX: e.clientX,
+    startY: e.clientY,
+    origX: p.x,
+    origY: p.y,
+    rectW: rect.width,
+    rectH: rect.height,
+    moved: false
+  };
+
+  e.currentTarget.setPointerCapture(e.pointerId);
+  e.currentTarget.addEventListener('pointermove', onPointerMove);
+  e.currentTarget.addEventListener('pointerup', onPointerUp);
+  e.currentTarget.addEventListener('pointercancel', onPointerUp);
+
+  editorEl.style.display = 'block';
+}
+
+function onPointerMove(e) {
+  if (!dragState) return;
+  const dx = e.clientX - dragState.startX;
+  const dy = e.clientY - dragState.startY;
+  if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragState.moved = true;
+
+  let nx = dragState.origX + dx / dragState.rectW;
+  let ny = dragState.origY + dy / dragState.rectH;
+  nx = Math.max(0, Math.min(1, nx));
+  ny = Math.max(0, Math.min(1, ny));
+
+  plants[dragState.idx].x = nx;
+  plants[dragState.idx].y = ny;
+  render();
+  setStatus('Растение перемещено');
+}
+
+function onPointerUp(e) {
+  if (!dragState) return;
+  const el = e.currentTarget;
+  el.removeEventListener('pointermove', onPointerMove);
+  el.removeEventListener('pointerup', onPointerUp);
+  el.removeEventListener('pointercancel', onPointerUp);
+  const wasDrag = dragState.moved;
+  dragState = null;
+  if (!wasDrag) {
+    setStatus('Выбрано: ' + CATALOG.find(c => c.id === plants[selectedIdx].typeId).name);
+  }
+}
+
+// === Тап по сцене (пустое место) — посадить ===
 function stageClick(e) {
   if (photo.style.display === 'none') return;
+  // Если только что было перетаскивание — не сажаем
+  if (dragState) return;
   const rect = photo.getBoundingClientRect();
   const x = (e.clientX - rect.left) / rect.width;
   const y = (e.clientY - rect.top) / rect.height;
@@ -138,21 +189,22 @@ function stageClick(e) {
   selectedIdx = plants.length - 1;
   render();
   editorEl.style.display = 'block';
-  statusEl.textContent = 'Посажено: ' + activeName() + '. Всего растений: ' + plants.length;
+  setStatus('Посажено: ' + activeName() + '. Всего растений: ' + plants.length);
 }
 
-// === Управление выбранным ===
-function grow()    { if (selectedIdx < 0) return; plants[selectedIdx].scale *= 1.15; render(); }
-function shrink()  { if (selectedIdx < 0) return; plants[selectedIdx].scale /= 1.15; render(); }
+function grow()   { if (selectedIdx < 0) return; plants[selectedIdx].scale *= 1.15; render(); }
+function shrink() { if (selectedIdx < 0) return; plants[selectedIdx].scale /= 1.15; render(); }
+
 function removeSelected() {
   if (selectedIdx < 0) return;
+  const name = CATALOG.find(c => c.id === plants[selectedIdx].typeId).name;
   plants.splice(selectedIdx, 1);
   selectedIdx = -1;
   editorEl.style.display = 'none';
   render();
+  setStatus('Удалено: ' + name + '. Осталось растений: ' + plants.length);
 }
 
-// === Каталог ===
 function renderCatalog() {
   catalogEl.innerHTML = '';
   CATALOG.forEach(c => {
@@ -162,6 +214,7 @@ function renderCatalog() {
     div.addEventListener('click', () => {
       activePlantId = c.id;
       renderCatalog();
+      setStatus('Активное растение: ' + c.name);
     });
     catalogEl.appendChild(div);
   });
@@ -172,16 +225,13 @@ function activeName() {
   return c ? c.name : '';
 }
 
-// === Смета ===
 function updateBOM() {
   if (plants.length === 0) {
     bomEl.innerHTML = '<tr><td colspan="2" style="color:#888">Пока ничего не посажено</td></tr>';
     return;
   }
   const counts = {};
-  plants.forEach(p => {
-    counts[p.typeId] = (counts[p.typeId] || 0) + 1;
-  });
+  plants.forEach(p => { counts[p.typeId] = (counts[p.typeId] || 0) + 1; });
   let totalPlants = 0;
   let rows = '';
   Object.entries(counts).forEach(([typeId, qty]) => {
@@ -203,7 +253,10 @@ function updateBOM() {
   bomEl.innerHTML = rows;
 }
 
-// === Скачать PNG (грубо, просто склеиваем фото и наложения через canvas) ===
+function setStatus(text) {
+  statusEl.textContent = text;
+}
+
 function downloadPNG() {
   if (photo.style.display === 'none') { alert('Сначала загрузите фото'); return; }
   const canvas = document.createElement('canvas');
@@ -221,12 +274,10 @@ function downloadPNG() {
     const cy = p.y * canvas.height;
     ctx.save();
     ctx.translate(cx, cy);
-    // Простая тень
     ctx.fillStyle = 'rgba(0,0,0,.25)';
     ctx.beginPath();
     ctx.ellipse(0, 0, size * 0.4, size * 0.1, 0, 0, Math.PI * 2);
     ctx.fill();
-    // Простая фигура
     ctx.fillStyle = cat.color;
     ctx.beginPath();
     ctx.ellipse(0, -size * 0.5, size * 0.4, size * 0.5, 0, 0, Math.PI * 2);
@@ -239,10 +290,10 @@ function downloadPNG() {
   link.click();
 }
 
-// === Старт ===
 renderCatalog();
 window.addEventListener('resize', render);
 window.addEventListener('orientationchange', () => setTimeout(render, 300));
-
-// Пересчёт позиций при загрузке картинки
 photo.addEventListener('load', render);
+
+// Обновляем статус на старте
+setStatus('Готово к работе');
